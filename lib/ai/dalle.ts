@@ -2,7 +2,7 @@
 const OPENAI_IMAGES_GENERATIONS_URL =
   "https://api.openai.com/v1/images/generations";
 
-const DALLE_MODEL = "dall-e-3" as const;
+const DALLE_MODEL = "gpt-image-1.5" as const;
 
 type DalleResponse = {
   data?: Array<{ url?: string; revised_prompt?: string }>;
