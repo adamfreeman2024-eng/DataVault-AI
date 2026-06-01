@@ -5,7 +5,11 @@ import {
   createGeneratePremiumImageTool,
   GENERATE_PREMIUM_IMAGE_TOOL_NAME,
 } from "@/lib/agent/tools/generate-premium-image";
-import { DATAVAULT_SYSTEM_PROMPT } from "@/lib/agent/system-prompt";
+import {
+  DATAVAULT_SYSTEM_PROMPT,
+  IMAGE_TOOL_EXECUTION_RULES,
+} from "@/lib/agent/system-prompt";
+import { userRequestsImageGeneration } from "@/lib/agent/premium";
 import type { AgentChatMessage } from "@/types/agent-api";
 
 export type AgentRunResult = {
@@ -13,9 +17,25 @@ export type AgentRunResult = {
   imageUrl?: string;
 };
 
-function buildSystemPrompt(extraContext: string): string {
-  if (!extraContext.trim()) return DATAVAULT_SYSTEM_PROMPT;
-  return `${DATAVAULT_SYSTEM_PROMPT}\n\n${extraContext}`;
+const MARKDOWN_IMAGE_REGEX = /!\[[^\]]*\]\([^)]+\)/g;
+
+type ToolOutputWithUrl = {
+  realUrl?: string;
+  imageUrl?: string;
+};
+
+function buildSystemPrompt(extraContext: string, toolsEnabled: boolean): string {
+  const parts = [DATAVAULT_SYSTEM_PROMPT];
+
+  if (toolsEnabled) {
+    parts.push(IMAGE_TOOL_EXECUTION_RULES);
+  }
+
+  if (extraContext.trim()) {
+    parts.push(extraContext);
+  }
+
+  return parts.join("\n\n");
 }
 
 function toModelMessages(messages: AgentChatMessage[]) {
@@ -27,19 +47,54 @@ function toModelMessages(messages: AgentChatMessage[]) {
     }));
 }
 
-function extractImageUrlFromToolResults(
-  toolResults: Array<{ toolName: string; output: unknown }>,
-): string | undefined {
-  for (const result of toolResults) {
-    if (result.toolName !== GENERATE_PREMIUM_IMAGE_TOOL_NAME) continue;
-    const output = result.output as { imageUrl?: string } | null;
-    if (output?.imageUrl) return output.imageUrl;
+function extractRealUrlFromToolOutput(output: unknown): string | undefined {
+  if (!output || typeof output !== "object") return undefined;
+  const record = output as ToolOutputWithUrl;
+  return record.realUrl ?? record.imageUrl;
+}
+
+/**
+ * Collects realUrl from every step — not only the last step's toolResults.
+ */
+function extractRealUrlFromAllSteps(result: {
+  steps: Array<{
+    toolResults: Array<{ toolName: string; output: unknown }>;
+  }>;
+  toolResults: Array<{ toolName: string; output: unknown }>;
+}): string | undefined {
+  for (const step of result.steps) {
+    for (const toolResult of step.toolResults) {
+      if (toolResult.toolName !== GENERATE_PREMIUM_IMAGE_TOOL_NAME) continue;
+      const realUrl = extractRealUrlFromToolOutput(toolResult.output);
+      if (realUrl) return realUrl;
+    }
   }
+
+  for (const toolResult of result.toolResults) {
+    if (toolResult.toolName !== GENERATE_PREMIUM_IMAGE_TOOL_NAME) continue;
+    const realUrl = extractRealUrlFromToolOutput(toolResult.output);
+    if (realUrl) return realUrl;
+  }
+
   return undefined;
 }
 
 /**
- * Hybrid agent: DeepSeek for reasoning + optional gated DALL·E tool after x402.
+ * Strips hallucinated markdown images and injects the verified OpenAI URL.
+ */
+function buildFinalContent(modelText: string, realUrl: string): string {
+  const stripped = modelText.replace(MARKDOWN_IMAGE_REGEX, "").trim();
+  const imageMarkdown = `![Generated image](${realUrl})`;
+
+  if (stripped) {
+    return `${stripped}\n\n${imageMarkdown}`;
+  }
+
+  return `Your premium image is ready.\n\n${imageMarkdown}`;
+}
+
+/**
+ * Hybrid agent: DeepSeek for reasoning + optional gated image tool after x402.
  */
 export async function runDataVaultAgent(
   messages: AgentChatMessage[],
@@ -50,20 +105,33 @@ export async function runDataVaultAgent(
   },
 ): Promise<AgentRunResult> {
   const model = createDeepSeekLanguageModel();
+  const toolsEnabled = options.paymentVerified;
+  const wantsImage = userRequestsImageGeneration(messages);
 
-  const tools: ToolSet | undefined = options.paymentVerified
+  const tools: ToolSet | undefined = toolsEnabled
     ? { [GENERATE_PREMIUM_IMAGE_TOOL_NAME]: createGeneratePremiumImageTool() }
     : undefined;
 
   const generateOptions: Parameters<typeof generateText>[0] = {
     model,
-    system: buildSystemPrompt(options.extraSystemContext ?? ""),
+    system: buildSystemPrompt(options.extraSystemContext ?? "", toolsEnabled),
     messages: toModelMessages(messages),
-    stopWhen: stepCountIs(5),
+    /**
+     * Step 1: model calls generate_premium_image (async execute awaits OpenAI).
+     * Step 2: model writes final answer using tool result realUrl.
+     */
+    stopWhen: tools ? stepCountIs(2) : stepCountIs(1),
   };
 
   if (tools) {
     generateOptions.tools = tools;
+
+    if (wantsImage) {
+      generateOptions.toolChoice = {
+        type: "tool",
+        toolName: GENERATE_PREMIUM_IMAGE_TOOL_NAME,
+      };
+    }
   }
 
   if (options.abortSignal) {
@@ -72,22 +140,20 @@ export async function runDataVaultAgent(
 
   const result = await generateText(generateOptions);
 
-  const imageUrl = extractImageUrlFromToolResults(
-    result.toolResults.map((tr) => ({
-      toolName: tr.toolName,
-      output: tr.output,
-    })),
-  );
+  const realUrl = extractRealUrlFromAllSteps(result);
+
+  if (realUrl) {
+    const content = buildFinalContent(result.text.trim(), realUrl);
+    return {
+      content,
+      imageUrl: realUrl,
+    };
+  }
 
   const text = result.text.trim();
-  if (!text && !imageUrl) {
+  if (!text) {
     throw new Error("The agent returned an empty response.");
   }
 
-  return {
-    content:
-      text ||
-      "Your premium image has been generated and is shown below.",
-    ...(imageUrl ? { imageUrl } : {}),
-  };
+  return { content: text };
 }

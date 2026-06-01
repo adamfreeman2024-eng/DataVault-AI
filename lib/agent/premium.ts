@@ -5,7 +5,7 @@ const FREE_CHAT_PATTERN =
   /^(hi|hello|hey|thanks|thank you|good\s+(morning|afternoon|evening)|how are you)\b/i;
 
 /** Explicit image generation requests always require x402 settlement. */
-const IMAGE_GENERATION_PATTERN =
+export const IMAGE_GENERATION_PATTERN =
   /\b(generate|create|make|draw|design|render|produce)\s+(an?\s+)?(image|picture|illustration|artwork|photo|graphic|visual)\b/i;
 
 /**
@@ -25,6 +25,14 @@ export function getLatestUserMessage(
     if (message?.role === "user") return message;
   }
   return undefined;
+}
+
+export function userRequestsImageGeneration(
+  messages: AgentChatMessage[],
+): boolean {
+  const latest = getLatestUserMessage(messages);
+  if (!latest) return false;
+  return IMAGE_GENERATION_PATTERN.test(latest.content.trim());
 }
 
 /**
