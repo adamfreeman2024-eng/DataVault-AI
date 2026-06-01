@@ -1,54 +1,164 @@
 import { NextResponse } from "next/server";
 
-import { createDeepSeekClient, getDeepSeekModelId } from "@/lib/ai/deepseek";
-import { createOpenAIClient, getOpenAIModelId } from "@/lib/ai/openai";
-import { createAgentKitPlaceholder } from "@/lib/hedera/agent-kit";
+import { buildOnChainContextSnippet } from "@/lib/agent/hedera-context";
+import { generateAgentReply } from "@/lib/agent/llm";
+import { getLatestUserMessage, requiresPremiumTask } from "@/lib/agent/premium";
+import {
+  buildPaymentRequiredResponse,
+  verifyHbarPayment,
+} from "@/lib/agent/x402";
+import { getHederaOperatorConfig } from "@/lib/env";
+import { createOperatorClient } from "@/lib/hedera/client";
+import type {
+  AgentErrorResponse,
+  AgentRequestBody,
+  AgentSuccessResponse,
+} from "@/types/agent-api";
 
 export const runtime = "nodejs";
 
-type AgentRequestBody = {
-  message?: string;
-};
+const MAX_MESSAGES = 50;
+const MAX_MESSAGE_LENGTH = 12_000;
+
+function jsonError(
+  body: AgentErrorResponse,
+  status: number,
+): NextResponse<AgentErrorResponse> {
+  return NextResponse.json(body, { status });
+}
+
+function validateMessages(
+  messages: AgentRequestBody["messages"],
+): string | null {
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return "messages must be a non-empty array";
+  }
+
+  if (messages.length > MAX_MESSAGES) {
+    return `messages exceeds maximum of ${MAX_MESSAGES}`;
+  }
+
+  for (const message of messages) {
+    if (
+      message.role !== "user" &&
+      message.role !== "assistant" &&
+      message.role !== "system"
+    ) {
+      return "each message must have role user, assistant, or system";
+    }
+
+    if (typeof message.content !== "string" || !message.content.trim()) {
+      return "each message must include non-empty content";
+    }
+
+    if (message.content.length > MAX_MESSAGE_LENGTH) {
+      return `message content exceeds ${MAX_MESSAGE_LENGTH} characters`;
+    }
+  }
+
+  return null;
+}
 
 /**
- * Skeleton for agent orchestration, x402 micropayments, and AI execution.
- * Implementation intentionally deferred.
+ * POST /api/agent
+ *
+ * x402 flow:
+ * 1. Classify latest user prompt (free vs premium).
+ * 2. Premium + no transactionId → 402 + payment instructions.
+ * 3. Premium + transactionId → verify 10 HBAR to operator via Hiero SDK.
+ * 4. Run LLM (with optional Hedera mirror context for paid premium tasks).
  */
 export async function POST(request: Request) {
-  let body: AgentRequestBody = {};
+  let body: AgentRequestBody;
 
   try {
     body = (await request.json()) as AgentRequestBody;
   } catch {
-    return NextResponse.json(
-      { error: "Invalid JSON body" },
-      { status: 400 },
+    return jsonError({ error: "Invalid JSON body", code: "INVALID_JSON" }, 400);
+  }
+
+  const validationError = validateMessages(body.messages);
+  if (validationError) {
+    return jsonError(
+      { error: validationError, code: "INVALID_MESSAGES" },
+      400,
     );
   }
 
-  const message = body.message?.trim();
-  if (!message) {
-    return NextResponse.json(
-      { error: "message is required" },
-      { status: 400 },
-    );
+  const premiumTask = requiresPremiumTask(body.messages);
+  const operatorAccountId = getHederaOperatorConfig().accountId;
+  let paymentVerified = false;
+
+  if (premiumTask) {
+    const transactionId = body.transactionId?.trim();
+
+    if (!transactionId) {
+      return NextResponse.json(buildPaymentRequiredResponse(operatorAccountId), {
+        status: 402,
+      });
+    }
+
+    try {
+      const { client } = createOperatorClient();
+      const verification = await verifyHbarPayment(
+        client,
+        transactionId,
+        operatorAccountId,
+      );
+
+      if (!verification.ok) {
+        return jsonError(
+          {
+            error: verification.reason,
+            code: "PAYMENT_VERIFICATION_FAILED",
+          },
+          400,
+        );
+      }
+
+      paymentVerified = true;
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Payment verification error";
+      return jsonError(
+        { error: message, code: "HEDERA_CLIENT_ERROR" },
+        500,
+      );
+    }
   }
 
-  const openai = createOpenAIClient();
-  const deepseek = createDeepSeekClient();
-  const agentKit = createAgentKitPlaceholder();
+  try {
+    const latestUser = getLatestUserMessage(body.messages);
+    let extraSystemContext = "";
 
-  return NextResponse.json(
-    {
-      status: "not_implemented",
-      hint: "Wire Hedera client, x402 settlement, and LLM invocation here.",
-      receivedMessage: message,
-      providers: {
-        openai: openai ? { model: getOpenAIModelId() } : null,
-        deepseek: deepseek ? { model: getDeepSeekModelId() } : null,
-      },
-      agentKit,
-    },
-    { status: 501 },
-  );
+    if (premiumTask && paymentVerified && latestUser) {
+      const { client, network } = createOperatorClient();
+      const mirrorContext = await buildOnChainContextSnippet(
+        client,
+        network,
+        latestUser.content,
+      );
+      if (mirrorContext) {
+        extraSystemContext = mirrorContext;
+      }
+    }
+
+    const content = await generateAgentReply(
+      body.messages,
+      extraSystemContext,
+    );
+
+    const response: AgentSuccessResponse = {
+      requiresPayment: false,
+      content,
+      premiumTask,
+      paymentVerified,
+    };
+
+    return NextResponse.json(response);
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "Agent execution failed";
+    return jsonError({ error: message, code: "AGENT_EXECUTION_ERROR" }, 500);
+  }
 }

@@ -1,19 +1,14 @@
-import type { Client } from "@hiero-ledger/sdk";
+import {
+  coreAccountQueryPluginToolNames,
+  coreTokenQueryPluginToolNames,
+} from "hedera-agent-kit";
 
 /**
- * Placeholder for Hedera Agent Kit initialization.
- * Wire HederaLangchainToolkit / plugins here when implementing agent flows.
- *
- * @see https://github.com/hashgraph/hedera-agent-kit-js
+ * Read-only Hedera Agent Kit query tool names (for future tool-calling loops).
+ * Premium routes currently use `getMirrornodeService` for mirror enrichment.
  */
-export type AgentKitInitOptions = {
-  client: Client;
-};
-
-export function createAgentKitPlaceholder() {
-  return {
-    ready: false as const,
-    message:
-      "Hedera Agent Kit wiring pending — connect toolkit, tools, and plugins in a follow-up.",
-  };
-}
+export const READ_ONLY_TOOL_NAMES = {
+  hbarBalance: coreAccountQueryPluginToolNames.GET_HBAR_BALANCE_QUERY_TOOL,
+  account: coreAccountQueryPluginToolNames.GET_ACCOUNT_QUERY_TOOL,
+  tokenInfo: coreTokenQueryPluginToolNames.GET_TOKEN_INFO_QUERY_TOOL,
+} as const;
