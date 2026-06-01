@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 
 import { useWallet } from "@/contexts/WalletContext";
 import { useChat } from "@/hooks/useChat";
+import { X402_PREMIUM_HBAR_AMOUNT } from "@/lib/constants";
 
 function MessageBubble({
   role,
@@ -38,23 +39,44 @@ function MessageBubble({
   );
 }
 
+function StatusBanner({ label }: { label: string }) {
+  return (
+    <div
+      className="flex items-center gap-3 rounded-xl border border-cyan-500/25 bg-cyan-950/40 px-4 py-3"
+      role="status"
+      aria-live="polite"
+    >
+      <span className="size-4 shrink-0 animate-spin rounded-full border-2 border-cyan-400/30 border-t-cyan-400" />
+      <p className="text-sm text-cyan-100">{label}</p>
+    </div>
+  );
+}
+
 export function ChatBox() {
   const { isConnected } = useWallet();
-  const { messages, input, setInput, isSubmitting, sendMessage } = useChat();
+  const {
+    messages,
+    input,
+    setInput,
+    sendMessage,
+    statusLabel,
+    error,
+    clearError,
+    isBusy,
+  } = useChat();
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, statusLabel, error]);
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!isConnected) return;
+    if (!isConnected || isBusy) return;
     void sendMessage();
   };
 
-  const canSend =
-    isConnected && !isSubmitting && input.trim().length > 0;
+  const canSend = isConnected && !isBusy && input.trim().length > 0;
 
   return (
     <section className="flex min-h-[32rem] flex-1 flex-col overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-900/40 shadow-2xl shadow-black/40 ring-1 ring-white/5 backdrop-blur-sm">
@@ -65,7 +87,7 @@ export function ChatBox() {
               Agent workspace
             </h2>
             <p className="mt-0.5 text-xs text-zinc-500">
-              Describe your bounty task — x402 settlement unlocks on send
+              Premium tasks settle {X402_PREMIUM_HBAR_AMOUNT} HBAR via WalletConnect
             </p>
           </div>
           <span
@@ -81,7 +103,7 @@ export function ChatBox() {
       </div>
 
       <div
-        className="flex-1 space-y-4 overflow-y-auto overscroll-contain px-5 py-5 scrollbar-thin"
+        className="flex flex-1 flex-col gap-4 overflow-y-auto overscroll-contain px-5 py-5 scrollbar-thin"
         aria-live="polite"
         aria-label="Chat messages"
       >
@@ -93,7 +115,7 @@ export function ChatBox() {
               </p>
               <p className="mt-2 max-w-xs text-xs leading-relaxed text-zinc-500">
                 {isConnected
-                  ? "Describe a complex task for the agent — micropayment settlement will attach when the backend is wired."
+                  ? "Ask a complex on-chain question — the agent will request a 10 HBAR x402 payment when needed."
                   : "Connect your Hedera wallet via WalletConnect to compose and send agent tasks."}
               </p>
             </div>
@@ -107,6 +129,26 @@ export function ChatBox() {
             />
           ))
         )}
+
+        {statusLabel ? <StatusBanner label={statusLabel} /> : null}
+
+        {error ? (
+          <div
+            className="rounded-xl border border-red-500/30 bg-red-950/50 px-4 py-3"
+            role="alert"
+          >
+            <p className="text-sm font-medium text-red-200">Request failed</p>
+            <p className="mt-1 text-sm text-red-300/90">{error}</p>
+            <button
+              type="button"
+              onClick={clearError}
+              className="mt-2 text-xs font-medium text-red-200 underline underline-offset-2 hover:text-white"
+            >
+              Dismiss
+            </button>
+          </div>
+        ) : null}
+
         <div ref={bottomRef} className="h-px shrink-0" aria-hidden />
       </div>
 
@@ -134,7 +176,7 @@ export function ChatBox() {
                 ? "e.g. Analyze on-chain token flows for account 0.0.x and summarize risks…"
                 : "Connect wallet to enable task submission…"
             }
-            disabled={!isConnected || isSubmitting}
+            disabled={!isConnected || isBusy}
             className="min-h-[4.5rem] flex-1 resize-none rounded-xl border border-zinc-700/80 bg-zinc-900/80 px-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-50"
           />
           <button
@@ -143,13 +185,15 @@ export function ChatBox() {
             title={
               !isConnected
                 ? "Connect your wallet to send"
-                : !input.trim()
-                  ? "Enter a message"
-                  : undefined
+                : isBusy
+                  ? "Please wait for the current request"
+                  : !input.trim()
+                    ? "Enter a message"
+                    : undefined
             }
             className="shrink-0 rounded-xl bg-gradient-to-r from-emerald-600 to-cyan-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-emerald-900/25 transition hover:from-emerald-500 hover:to-cyan-500 disabled:cursor-not-allowed disabled:from-zinc-700 disabled:to-zinc-700 disabled:text-zinc-500 disabled:shadow-none sm:min-w-[7rem]"
           >
-            {isSubmitting ? "Sending…" : "Send"}
+            {isBusy ? "Working…" : "Send"}
           </button>
         </div>
         {!isConnected && (
