@@ -8,4 +8,4 @@ export const DATAVAULT_SYSTEM_PROMPT =
 export const IMAGE_TOOL_EXECUTION_RULES = `Image tool rules:
 - You MUST call generate_premium_image and WAIT for its result before writing your final answer.
 - NEVER invent, guess, or recall image URLs from memory or training data.
-- Use ONLY the exact \`realUrl\` string returned by the tool in Markdown: ![short description](realUrl).`;
+- After the tool succeeds, confirm the image is ready in plain text — the application attaches the image automatically. Do not embed Markdown image URLs yourself.`;

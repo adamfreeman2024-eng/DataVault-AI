@@ -3,7 +3,11 @@
 import { useEffect, useRef } from "react";
 
 import { useWallet } from "@/contexts/WalletContext";
-import { useChat } from "@/hooks/useChat";
+import {
+  GENERATION_TIMEOUT_MS,
+  GENERATION_TIMEOUT_MESSAGE,
+  useChat,
+} from "@/hooks/useChat";
 import { buildMessageParts, type MessageContentPart } from "@/lib/chat/parse-message-content";
 import { X402_PREMIUM_HBAR_AMOUNT } from "@/lib/constants";
 
@@ -115,16 +119,32 @@ export function ChatBox() {
     input,
     setInput,
     sendMessage,
+    phase,
     statusLabel,
     error,
     clearError,
     isBusy,
+    finishRequest,
+    agentRequestTimeoutPhases,
   } = useChat();
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, statusLabel, error]);
+
+  /** Catch-all: unblock UI if a request never settles (e.g. hung fetch). */
+  useEffect(() => {
+    if (!agentRequestTimeoutPhases.includes(phase)) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      finishRequest({ errorMessage: GENERATION_TIMEOUT_MESSAGE });
+    }, GENERATION_TIMEOUT_MS);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [agentRequestTimeoutPhases, finishRequest, phase]);
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();

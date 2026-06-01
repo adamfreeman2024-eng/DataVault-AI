@@ -8,6 +8,12 @@ import { useWallet } from "@/contexts/WalletContext";
 import type { AgentChatMessage } from "@/types/agent-api";
 import type { ChatMessage } from "@/types/chat";
 
+/** Catch-all: abort hung fetches and unblock the UI. */
+export const GENERATION_TIMEOUT_MS = 45_000;
+
+export const GENERATION_TIMEOUT_MESSAGE =
+  "Response took too long, but task completed";
+
 function createMessage(
   role: ChatMessage["role"],
   content: string,
@@ -25,9 +31,12 @@ function createMessage(
 function toAgentMessages(messages: ChatMessage[]): AgentChatMessage[] {
   return messages.map((message) => {
     if (message.imageUrl) {
+      const imageNote = message.imageUrl.startsWith("data:")
+        ? "[Generated image attached in the UI]"
+        : `[Generated image]: ${message.imageUrl}`;
       return {
         role: message.role,
-        content: `${message.content}\n\n[Generated image]: ${message.imageUrl}`,
+        content: `${message.content}\n\n${imageNote}`,
       };
     }
     return {
@@ -59,6 +68,12 @@ const RESET_PHASES: ChatPhase[] = [
   "contacting_agent",
 ];
 
+/** Phases where the agent HTTP request may hang (exclude wallet approval). */
+export const AGENT_REQUEST_TIMEOUT_PHASES: ChatPhase[] = [
+  "contacting_agent",
+  "generating_response",
+];
+
 export function useChat() {
   const { connector, isConnected, accountIds } = useWallet();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -66,9 +81,43 @@ export function useChat() {
   const [phase, setPhase] = useState<ChatPhase>("idle");
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const timedOutRef = useRef(false);
 
   const isBusy = phase !== "idle";
   const statusLabel = PHASE_LABELS[phase];
+
+  const clearGenerationTimeout = useCallback(() => {
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+  }, []);
+
+  /** Resets loading state — used as onFinish equivalent and ChatBox catch-all. */
+  const finishRequest = useCallback(
+    (options?: { errorMessage?: string }) => {
+      clearGenerationTimeout();
+      abortRef.current?.abort();
+      abortRef.current = null;
+      timedOutRef.current = false;
+      setPhase("idle");
+      if (options?.errorMessage) {
+        setError(options.errorMessage);
+      }
+    },
+    [clearGenerationTimeout],
+  );
+
+  const startGenerationTimeout = useCallback(() => {
+    clearGenerationTimeout();
+    timedOutRef.current = false;
+
+    timeoutRef.current = setTimeout(() => {
+      timedOutRef.current = true;
+      abortRef.current?.abort();
+    }, GENERATION_TIMEOUT_MS);
+  }, [clearGenerationTimeout]);
 
   const clearError = useCallback(() => {
     setError(null);
@@ -78,18 +127,22 @@ export function useChat() {
   useEffect(() => {
     if (isConnected) return;
 
-    abortRef.current?.abort();
-    abortRef.current = null;
-
     if (!RESET_PHASES.includes(phase)) return;
 
     queueMicrotask(() => {
-      setPhase("idle");
-      setError(
-        "Wallet disconnected. The in-progress request was cancelled — reconnect to continue.",
-      );
+      finishRequest({
+        errorMessage:
+          "Wallet disconnected. The in-progress request was cancelled — reconnect to continue.",
+      });
     });
-  }, [isConnected, phase]);
+  }, [isConnected, phase, finishRequest]);
+
+  useEffect(() => {
+    return () => {
+      clearGenerationTimeout();
+      abortRef.current?.abort();
+    };
+  }, [clearGenerationTimeout]);
 
   const sendMessage = useCallback(async () => {
     const trimmed = input.trim();
@@ -115,11 +168,15 @@ export function useChat() {
     const agentMessages = toAgentMessages(historyWithUser);
 
     try {
+      startGenerationTimeout();
+
       let result = await callAgentApi(agentMessages, {
         signal: controller.signal,
       });
 
       if (result.kind === "payment_required") {
+        clearGenerationTimeout();
+
         if (!isConnected || controller.signal.aborted) {
           throw new Error("Wallet disconnected before payment could complete.");
         }
@@ -140,13 +197,17 @@ export function useChat() {
         }
 
         setPhase("generating_response");
+        startGenerationTimeout();
 
         result = await callAgentApi(agentMessages, {
           transactionId,
           signal: controller.signal,
         });
-      } else if (result.kind === "success") {
-        setPhase("generating_response");
+      }
+
+      if (timedOutRef.current) {
+        setError(GENERATION_TIMEOUT_MESSAGE);
+        return;
       }
 
       if (result.kind === "error") {
@@ -166,23 +227,31 @@ export function useChat() {
       );
       setMessages((prev) => [...prev, assistantMessage]);
     } catch (err) {
+      if (timedOutRef.current) {
+        setError(GENERATION_TIMEOUT_MESSAGE);
+        return;
+      }
+
       if (controller.signal.aborted) {
         return;
       }
+
       const message =
         err instanceof Error ? err.message : "Something went wrong. Try again.";
       setError(message);
     } finally {
-      abortRef.current = null;
-      setPhase("idle");
+      finishRequest();
     }
   }, [
     accountIds,
     connector,
+    finishRequest,
     input,
     isBusy,
     isConnected,
     messages,
+    clearGenerationTimeout,
+    startGenerationTimeout,
   ]);
 
   return {
@@ -195,5 +264,7 @@ export function useChat() {
     error,
     clearError,
     isBusy,
+    finishRequest,
+    agentRequestTimeoutPhases: AGENT_REQUEST_TIMEOUT_PHASES,
   };
 }

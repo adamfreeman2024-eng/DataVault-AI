@@ -18,6 +18,11 @@ import type {
 
 export const runtime = "nodejs";
 
+/** Allow OpenAI image gen + DeepSeek tool loop (can exceed default limits). */
+export const maxDuration = 300;
+
+const AGENT_EXECUTION_TIMEOUT_MS = 120_000;
+
 const MAX_MESSAGES = 50;
 const MAX_MESSAGE_LENGTH = 12_000;
 
@@ -58,6 +63,38 @@ function validateMessages(
   }
 
   return null;
+}
+
+function createAgentAbortSignal(
+  requestSignal: AbortSignal | undefined,
+  timeoutMs: number,
+): { signal: AbortSignal; cleanup: () => void } {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  const onRequestAbort = () => controller.abort();
+  requestSignal?.addEventListener("abort", onRequestAbort);
+
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      clearTimeout(timeoutId);
+      requestSignal?.removeEventListener("abort", onRequestAbort);
+    },
+  };
+}
+
+function jsonSuccess(
+  body: AgentSuccessResponse,
+): NextResponse<AgentSuccessResponse> {
+  return new NextResponse(JSON.stringify(body), {
+    status: 200,
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "no-store, no-cache, must-revalidate",
+      Connection: "close",
+    },
+  });
 }
 
 /**
@@ -150,10 +187,22 @@ export async function POST(request: Request) {
       );
     }
 
-    const agentResult = await runDataVaultAgent(body.messages, {
-      paymentVerified,
-      extraSystemContext,
-    });
+    const { signal, cleanup } = createAgentAbortSignal(
+      request.signal,
+      AGENT_EXECUTION_TIMEOUT_MS,
+    );
+
+    let agentResult: Awaited<ReturnType<typeof runDataVaultAgent>>;
+
+    try {
+      agentResult = await runDataVaultAgent(body.messages, {
+        paymentVerified,
+        extraSystemContext,
+        abortSignal: signal,
+      });
+    } finally {
+      cleanup();
+    }
 
     const response: AgentSuccessResponse = {
       requiresPayment: false,
@@ -163,7 +212,7 @@ export async function POST(request: Request) {
       paymentVerified,
     };
 
-    return NextResponse.json(response);
+    return jsonSuccess(response);
   } catch (err) {
     const message =
       err instanceof Error ? err.message : "Agent execution failed";

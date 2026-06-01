@@ -156,8 +156,16 @@ export async function runDataVaultAgent(
   const toolsEnabled = options.paymentVerified;
   const wantsImage = userRequestsImageGeneration(messages);
 
+  let capturedImageUrl: string | undefined;
+
   const tools: ToolSet | undefined = toolsEnabled
-    ? { [GENERATE_PREMIUM_IMAGE_TOOL_NAME]: createGeneratePremiumImageTool() }
+    ? {
+        [GENERATE_PREMIUM_IMAGE_TOOL_NAME]: createGeneratePremiumImageTool({
+          onImageReady: (realUrl) => {
+            capturedImageUrl = realUrl;
+          },
+        }),
+      }
     : undefined;
 
   const generateOptions: Parameters<typeof generateText>[0] = {
@@ -165,11 +173,11 @@ export async function runDataVaultAgent(
     system: buildSystemPrompt(options.extraSystemContext ?? "", toolsEnabled),
     messages: toModelMessages(messages),
     /**
-     * maxSteps / maxToolRoundtrips equivalent: 2 steps required when tools are on.
-     * Step 1 — LLM calls generate_premium_image (execute awaits OpenAI fetch).
-     * Step 2 — LLM reads tool output (realUrl or error string) and replies.
+     * maxSteps: allow tool call + model follow-up (up to 5 steps).
+     * Step 1 — LLM calls generate_premium_image (OpenAI fetch).
+     * Step 2+ — LLM confirms to the user (tool output is kept small on purpose).
      */
-    stopWhen: tools ? stepCountIs(2) : stepCountIs(1),
+    stopWhen: tools ? stepCountIs(5) : stepCountIs(1),
   };
 
   if (tools) {
@@ -190,7 +198,7 @@ export async function runDataVaultAgent(
   const result = await generateText(generateOptions);
 
   const toolError = extractImageToolErrorFromSteps(result);
-  const realUrl = extractRealUrlFromAllSteps(result);
+  const realUrl = capturedImageUrl ?? extractRealUrlFromAllSteps(result);
 
   if (toolError && !realUrl) {
     const modelText = result.text.trim();
@@ -200,7 +208,19 @@ export async function runDataVaultAgent(
   }
 
   if (realUrl) {
-    const content = buildFinalContent(result.text.trim(), realUrl);
+    const modelText = result.text.trim();
+    const isDataUrl = realUrl.startsWith("data:");
+
+    if (isDataUrl) {
+      return {
+        content:
+          modelText ||
+          "Your premium image is ready — it is shown below.",
+        imageUrl: realUrl,
+      };
+    }
+
+    const content = buildFinalContent(modelText, realUrl);
     return {
       content,
       imageUrl: realUrl,
