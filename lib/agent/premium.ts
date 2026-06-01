@@ -4,6 +4,10 @@ import type { AgentChatMessage } from "@/types/agent-api";
 const FREE_CHAT_PATTERN =
   /^(hi|hello|hey|thanks|thank you|good\s+(morning|afternoon|evening)|how are you)\b/i;
 
+/** Explicit image generation requests always require x402 settlement. */
+const IMAGE_GENERATION_PATTERN =
+  /\b(generate|create|make|draw|design|render|produce)\s+(an?\s+)?(image|picture|illustration|artwork|photo|graphic|visual)\b/i;
+
 /**
  * Signals that the latest user turn needs premium tooling (analysis, generation, on-chain work).
  */
@@ -35,6 +39,10 @@ export function requiresPremiumTask(messages: AgentChatMessage[]): boolean {
 
   if (text.length <= 48 && FREE_CHAT_PATTERN.test(text)) {
     return false;
+  }
+
+  if (IMAGE_GENERATION_PATTERN.test(text)) {
+    return true;
   }
 
   if (PREMIUM_TASK_PATTERN.test(text)) {

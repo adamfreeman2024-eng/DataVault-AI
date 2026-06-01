@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { buildOnChainContextSnippet } from "@/lib/agent/hedera-context";
-import { generateAgentReply } from "@/lib/agent/llm";
+import { runDataVaultAgent } from "@/lib/agent/run-agent";
 import { getLatestUserMessage, requiresPremiumTask } from "@/lib/agent/premium";
 import {
   buildPaymentRequiredResponse,
@@ -143,14 +143,15 @@ export async function POST(request: Request) {
       }
     }
 
-    const content = await generateAgentReply(
-      body.messages,
+    const agentResult = await runDataVaultAgent(body.messages, {
+      paymentVerified,
       extraSystemContext,
-    );
+    });
 
     const response: AgentSuccessResponse = {
       requiresPayment: false,
-      content,
+      content: agentResult.content,
+      ...(agentResult.imageUrl ? { imageUrl: agentResult.imageUrl } : {}),
       premiumTask,
       paymentVerified,
     };

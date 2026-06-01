@@ -21,6 +21,7 @@ export type PaymentRequiredResponse = {
 export type AgentSuccessResponse = {
   requiresPayment: false;
   content: string;
+  imageUrl?: string;
   premiumTask: boolean;
   paymentVerified: boolean;
 };

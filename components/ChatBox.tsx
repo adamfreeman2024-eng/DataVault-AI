@@ -6,12 +6,79 @@ import { useWallet } from "@/contexts/WalletContext";
 import { useChat } from "@/hooks/useChat";
 import { X402_PREMIUM_HBAR_AMOUNT } from "@/lib/constants";
 
+const URL_IN_TEXT =
+  /(https?:\/\/[^\s<>"']+\.(?:png|jpe?g|webp|gif)(?:\?[^\s<>"']*)?)/gi;
+
+function extractImageUrls(content: string): string[] {
+  const matches = content.match(URL_IN_TEXT);
+  return matches ? [...new Set(matches)] : [];
+}
+
+function MessageContent({
+  content,
+  imageUrl,
+}: {
+  content: string;
+  imageUrl?: string;
+}) {
+  const embeddedUrls = extractImageUrls(content);
+  const primaryUrl = imageUrl ?? embeddedUrls[0];
+  const textWithoutUrls =
+    primaryUrl && !imageUrl
+      ? content.replace(URL_IN_TEXT, "").trim()
+      : content;
+
+  return (
+    <div className="space-y-3">
+      {textWithoutUrls ? (
+        <p className="whitespace-pre-wrap">{textWithoutUrls}</p>
+      ) : null}
+      {primaryUrl ? (
+        <figure className="overflow-hidden rounded-xl border border-zinc-600/60 bg-zinc-950/80">
+          <a
+            href={primaryUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={primaryUrl}
+              alt="Premium generated image"
+              className="max-h-96 w-full object-contain"
+            />
+          </a>
+          <figcaption className="border-t border-zinc-700/60 px-3 py-2 text-[10px] text-zinc-500">
+            DALL·E 3 ·{" "}
+            <span className="truncate">{primaryUrl}</span>
+          </figcaption>
+        </figure>
+      ) : null}
+      {embeddedUrls.slice(imageUrl ? 0 : 1).map((url) => (
+        <figure
+          key={url}
+          className="overflow-hidden rounded-xl border border-zinc-600/60 bg-zinc-950/80"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={url}
+            alt="Linked image"
+            className="max-h-64 w-full object-contain"
+          />
+        </figure>
+      ))}
+    </div>
+  );
+}
+
 function MessageBubble({
   role,
   content,
+  imageUrl,
 }: {
   role: "user" | "assistant" | "system";
   content: string;
+  imageUrl?: string;
 }) {
   const isUser = role === "user";
 
@@ -33,7 +100,14 @@ function MessageBubble({
             : "rounded-bl-md border border-zinc-700/60 bg-zinc-800/80 text-zinc-100"
         }`}
       >
-        <p className="whitespace-pre-wrap">{content}</p>
+        {isUser ? (
+          <p className="whitespace-pre-wrap">{content}</p>
+        ) : (
+          <MessageContent
+            content={content}
+            {...(imageUrl ? { imageUrl } : {})}
+          />
+        )}
       </div>
     </article>
   );
@@ -87,7 +161,8 @@ export function ChatBox() {
               Agent workspace
             </h2>
             <p className="mt-0.5 text-xs text-zinc-500">
-              Premium tasks settle {X402_PREMIUM_HBAR_AMOUNT} HBAR via WalletConnect
+              DeepSeek chat · DALL·E 3 images · {X402_PREMIUM_HBAR_AMOUNT} HBAR
+              premium gate
             </p>
           </div>
           <span
@@ -115,7 +190,7 @@ export function ChatBox() {
               </p>
               <p className="mt-2 max-w-xs text-xs leading-relaxed text-zinc-500">
                 {isConnected
-                  ? "Ask a complex on-chain question — the agent will request a 10 HBAR x402 payment when needed."
+                  ? "Ask for analysis or say “generate an image of…” — premium tasks settle 10 HBAR first."
                   : "Connect your Hedera wallet via WalletConnect to compose and send agent tasks."}
               </p>
             </div>
@@ -126,6 +201,7 @@ export function ChatBox() {
               key={message.id}
               role={message.role}
               content={message.content}
+              {...(message.imageUrl ? { imageUrl: message.imageUrl } : {})}
             />
           ))
         )}
@@ -173,7 +249,7 @@ export function ChatBox() {
             }}
             placeholder={
               isConnected
-                ? "e.g. Analyze on-chain token flows for account 0.0.x and summarize risks…"
+                ? "e.g. Generate an image of a futuristic Hedera vault in space…"
                 : "Connect wallet to enable task submission…"
             }
             disabled={!isConnected || isBusy}

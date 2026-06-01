@@ -16,16 +16,22 @@ export type AgentApiResult =
  */
 export async function callAgentApi(
   messages: AgentChatMessage[],
-  transactionId?: string,
+  options?: { transactionId?: string; signal?: AbortSignal },
 ): Promise<AgentApiResult> {
-  const response = await fetch(API_ROUTES.agent, {
+  const init: RequestInit = {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       messages,
-      ...(transactionId ? { transactionId } : {}),
+      ...(options?.transactionId ? { transactionId: options.transactionId } : {}),
     }),
-  });
+  };
+
+  if (options?.signal) {
+    init.signal = options.signal;
+  }
+
+  const response = await fetch(API_ROUTES.agent, init);
 
   let data: unknown;
   try {
