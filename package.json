@@ -1,5 +1,5 @@
 {
-  "name": "agentkit",
+  "name": "datavault-ai",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -9,7 +9,11 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@hiero-ledger/sdk": "^2.84.0",
+    "hashconnect": "^3.0.14",
+    "hedera-agent-kit": "^3.8.2",
     "next": "16.2.6",
+    "openai": "^6.39.1",
     "react": "19.2.4",
     "react-dom": "19.2.4"
   },
