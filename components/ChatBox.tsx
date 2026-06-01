@@ -94,7 +94,7 @@ export function ChatBox() {
               <p className="mt-2 max-w-xs text-xs leading-relaxed text-zinc-500">
                 {isConnected
                   ? "Describe a complex task for the agent — micropayment settlement will attach when the backend is wired."
-                  : "Connect your HashPack wallet to compose and send agent tasks."}
+                  : "Connect your Hedera wallet via WalletConnect to compose and send agent tasks."}
               </p>
             </div>
           </div>
@@ -154,7 +154,7 @@ export function ChatBox() {
         </div>
         {!isConnected && (
           <p className="mt-2 text-center text-xs text-amber-500/90 sm:text-left">
-            HashPack connection required before submitting tasks.
+            WalletConnect session required before submitting tasks.
           </p>
         )}
       </form>

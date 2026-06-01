@@ -8,21 +8,25 @@ export function WalletConnectInner() {
     isConnected,
     accountIds,
     isInitializing,
+    isConnecting,
     error,
     connect,
     disconnect,
   } = useWallet();
 
   const primaryAccount = accountIds[0];
+  const isBusy = isInitializing || isConnecting;
 
-  if (error) {
+  if (error && !isConnected) {
     return (
       <div
         className="flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-950/40 px-3 py-2"
         title={error}
       >
         <span className="size-2 shrink-0 rounded-full bg-red-500" aria-hidden />
-        <span className="text-sm text-red-300">Wallet unavailable</span>
+        <span className="max-w-[12rem] truncate text-sm text-red-300 sm:max-w-none">
+          {error}
+        </span>
       </div>
     );
   }
@@ -57,12 +61,16 @@ export function WalletConnectInner() {
   return (
     <button
       type="button"
-      onClick={connect}
-      disabled={isInitializing}
+      onClick={() => void connect()}
+      disabled={isBusy}
       className="group relative overflow-hidden rounded-xl bg-gradient-to-r from-emerald-600 to-cyan-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-emerald-900/30 transition hover:from-emerald-500 hover:to-cyan-500 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-400"
     >
       <span className="relative z-10">
-        {isInitializing ? "Connecting…" : "Connect Wallet"}
+        {isInitializing
+          ? "Loading…"
+          : isConnecting
+            ? "Connecting…"
+            : "Connect Wallet"}
       </span>
       <span
         className="pointer-events-none absolute inset-0 opacity-0 transition group-hover:opacity-100"

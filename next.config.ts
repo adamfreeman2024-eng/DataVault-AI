@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  transpilePackages: ["hashconnect"],
+  transpilePackages: ["@hashgraph/hedera-wallet-connect"],
   serverExternalPackages: ["@hiero-ledger/sdk", "hedera-agent-kit"],
 };
 
