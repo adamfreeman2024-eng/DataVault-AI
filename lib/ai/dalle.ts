@@ -127,7 +127,7 @@ export async function executeOpenAIImageGeneration(
       prompt: prompt.trim(),
       n: 1,
       size: "1024x1024",
-      quality: "standard",
+      quality: "low", // <--- Սա դարձրու "low"
     };
 
     let response: Response;
