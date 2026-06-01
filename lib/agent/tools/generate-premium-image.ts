@@ -12,7 +12,7 @@ export const GENERATE_PREMIUM_IMAGE_TOOL_NAME = "generate_premium_image";
 export function createGeneratePremiumImageTool() {
   return tool({
     description:
-      "Generate a premium image via OpenAI (gpt-image-2). Call when the user explicitly asks for an image. On success returns `{ realUrl }` — use ONLY that URL in Markdown. On failure returns an error string starting with 'Error generating image:' — relay that to the user; do not invent URLs.",
+      "Generate a premium image via OpenAI (gpt-image-2). Call when the user explicitly asks for an image. On success returns `{ realUrl }` (https URL or data: URI from base64) — use ONLY that string in Markdown. On failure returns an error string starting with 'Error generating image:' — relay that to the user; do not invent URLs.",
     inputSchema: z.object({
       prompt: z
         .string()
@@ -23,6 +23,8 @@ export function createGeneratePremiumImageTool() {
         ),
     }),
     execute: async ({ prompt }) => {
+      console.log("1. Tool called: generate_premium_image started");
+
       try {
         const result = await executeOpenAIImageGeneration(prompt);
 
@@ -35,12 +37,9 @@ export function createGeneratePremiumImageTool() {
           prompt,
         };
       } catch (err) {
+        console.error("TOOL CATCH ERROR:", err);
         const message =
           err instanceof Error ? err.message : "Unknown tool failure";
-        console.error(
-          "[generate_premium_image] Tool execute caught unexpected error:",
-          err,
-        );
         return `Error generating image: ${message}`;
       }
     },
