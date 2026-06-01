@@ -5,8 +5,8 @@ import { executeOpenAIImageGeneration } from "@/lib/ai/dalle";
 
 export const GENERATE_PREMIUM_IMAGE_TOOL_NAME = "generate_premium_image";
 
-/** Set false to resume OpenAI calls. Also referenced from `app/api/agent/route.ts`. */
-export const IS_MOCK_MODE = true;
+/** Set true to skip OpenAI and return a test Unsplash image. */
+export const IS_MOCK_MODE = false;
 
 const MOCK_IMAGE_MARKDOWN =
   "![Test Space Vault](https://images.unsplash.com/photo-1614730321146-b6fa6a46bcb4?q=80&w=1000)";
