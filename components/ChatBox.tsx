@@ -124,7 +124,7 @@ export function ChatBox() {
     error,
     clearError,
     isBusy,
-    finishRequest,
+    softUnlockUi,
     agentRequestTimeoutPhases,
   } = useChat();
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -140,11 +140,11 @@ export function ChatBox() {
     }
 
     const timeoutId = window.setTimeout(() => {
-      finishRequest({ errorMessage: GENERATION_TIMEOUT_MESSAGE });
+      softUnlockUi(GENERATION_TIMEOUT_MESSAGE);
     }, GENERATION_TIMEOUT_MS);
 
     return () => window.clearTimeout(timeoutId);
-  }, [agentRequestTimeoutPhases, finishRequest, phase]);
+  }, [agentRequestTimeoutPhases, phase, softUnlockUi]);
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();

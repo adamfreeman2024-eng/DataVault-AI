@@ -8,8 +8,8 @@ import { useWallet } from "@/contexts/WalletContext";
 import type { AgentChatMessage } from "@/types/agent-api";
 import type { ChatMessage } from "@/types/chat";
 
-/** Catch-all: abort hung fetches and unblock the UI. */
-export const GENERATION_TIMEOUT_MS = 45_000;
+/** Soft UI unlock — fetch keeps running so a late 200 can still append the reply. */
+export const GENERATION_TIMEOUT_MS = 60_000;
 
 export const GENERATION_TIMEOUT_MESSAGE =
   "Response took too long, but task completed";
@@ -68,7 +68,7 @@ const RESET_PHASES: ChatPhase[] = [
   "contacting_agent",
 ];
 
-/** Phases where the agent HTTP request may hang (exclude wallet approval). */
+/** Phases where the agent HTTP request may run long (exclude wallet approval). */
 export const AGENT_REQUEST_TIMEOUT_PHASES: ChatPhase[] = [
   "contacting_agent",
   "generating_response",
@@ -82,7 +82,7 @@ export function useChat() {
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const timedOutRef = useRef(false);
+  const softTimedOutRef = useRef(false);
 
   const isBusy = phase !== "idle";
   const statusLabel = PHASE_LABELS[phase];
@@ -94,13 +94,24 @@ export function useChat() {
     }
   }, []);
 
-  /** Resets loading state — used as onFinish equivalent and ChatBox catch-all. */
-  const finishRequest = useCallback(
+  /**
+   * Unblocks the UI without aborting fetch — late responses can still append messages.
+   */
+  const softUnlockUi = useCallback((errorMessage?: string) => {
+    softTimedOutRef.current = true;
+    setPhase("idle");
+    if (errorMessage) {
+      setError(errorMessage);
+    }
+  }, []);
+
+  /** Hard cancel (wallet disconnect, unmount). */
+  const cancelRequest = useCallback(
     (options?: { errorMessage?: string }) => {
       clearGenerationTimeout();
       abortRef.current?.abort();
       abortRef.current = null;
-      timedOutRef.current = false;
+      softTimedOutRef.current = false;
       setPhase("idle");
       if (options?.errorMessage) {
         setError(options.errorMessage);
@@ -111,13 +122,12 @@ export function useChat() {
 
   const startGenerationTimeout = useCallback(() => {
     clearGenerationTimeout();
-    timedOutRef.current = false;
+    softTimedOutRef.current = false;
 
     timeoutRef.current = setTimeout(() => {
-      timedOutRef.current = true;
-      abortRef.current?.abort();
+      softUnlockUi(GENERATION_TIMEOUT_MESSAGE);
     }, GENERATION_TIMEOUT_MS);
-  }, [clearGenerationTimeout]);
+  }, [clearGenerationTimeout, softUnlockUi]);
 
   const clearError = useCallback(() => {
     setError(null);
@@ -130,12 +140,12 @@ export function useChat() {
     if (!RESET_PHASES.includes(phase)) return;
 
     queueMicrotask(() => {
-      finishRequest({
+      cancelRequest({
         errorMessage:
           "Wallet disconnected. The in-progress request was cancelled — reconnect to continue.",
       });
     });
-  }, [isConnected, phase, finishRequest]);
+  }, [isConnected, phase, cancelRequest]);
 
   useEffect(() => {
     return () => {
@@ -160,12 +170,14 @@ export function useChat() {
     setMessages(historyWithUser);
     setInput("");
     setError(null);
+    softTimedOutRef.current = false;
     setPhase("contacting_agent");
 
     const controller = new AbortController();
     abortRef.current = controller;
 
     const agentMessages = toAgentMessages(historyWithUser);
+    const hadSoftTimeout = () => softTimedOutRef.current;
 
     try {
       startGenerationTimeout();
@@ -205,11 +217,6 @@ export function useChat() {
         });
       }
 
-      if (timedOutRef.current) {
-        setError(GENERATION_TIMEOUT_MESSAGE);
-        return;
-      }
-
       if (result.kind === "error") {
         const detail = result.data.error ?? "Agent request failed";
         const code = result.data.code ? ` (${result.data.code})` : "";
@@ -226,13 +233,16 @@ export function useChat() {
         result.data.imageUrl,
       );
       setMessages((prev) => [...prev, assistantMessage]);
+
+      if (hadSoftTimeout()) {
+        setError(null);
+      }
     } catch (err) {
-      if (timedOutRef.current) {
-        setError(GENERATION_TIMEOUT_MESSAGE);
+      if (controller.signal.aborted && !hadSoftTimeout()) {
         return;
       }
 
-      if (controller.signal.aborted) {
+      if (hadSoftTimeout()) {
         return;
       }
 
@@ -240,12 +250,14 @@ export function useChat() {
         err instanceof Error ? err.message : "Something went wrong. Try again.";
       setError(message);
     } finally {
-      finishRequest();
+      clearGenerationTimeout();
+      abortRef.current = null;
+      setPhase("idle");
+      softTimedOutRef.current = false;
     }
   }, [
     accountIds,
     connector,
-    finishRequest,
     input,
     isBusy,
     isConnected,
@@ -264,7 +276,7 @@ export function useChat() {
     error,
     clearError,
     isBusy,
-    finishRequest,
+    softUnlockUi,
     agentRequestTimeoutPhases: AGENT_REQUEST_TIMEOUT_PHASES,
   };
 }

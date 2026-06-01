@@ -1,4 +1,4 @@
-/** OpenAI Images API — gpt-image-2 (quality: low | medium | high | auto) */
+/** OpenAI Images API — gpt-image-2 (quality: standard for faster generation) */
 const OPENAI_IMAGES_GENERATIONS_URL =
   "https://api.openai.com/v1/images/generations";
 
@@ -127,7 +127,7 @@ export async function executeOpenAIImageGeneration(
       prompt: prompt.trim(),
       n: 1,
       size: "1024x1024",
-      quality: "high",
+      quality: "standard",
     };
 
     let response: Response;
