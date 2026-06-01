@@ -24,6 +24,8 @@ type ToolOutputWithUrl = {
   imageUrl?: string;
 };
 
+const IMAGE_ERROR_PREFIX = "Error generating image:";
+
 function buildSystemPrompt(extraContext: string, toolsEnabled: boolean): string {
   const parts = [DATAVAULT_SYSTEM_PROMPT];
 
@@ -48,9 +50,49 @@ function toModelMessages(messages: AgentChatMessage[]) {
 }
 
 function extractRealUrlFromToolOutput(output: unknown): string | undefined {
+  if (typeof output === "string") {
+    if (output.startsWith(IMAGE_ERROR_PREFIX)) return undefined;
+    return undefined;
+  }
+
   if (!output || typeof output !== "object") return undefined;
+
   const record = output as ToolOutputWithUrl;
   return record.realUrl ?? record.imageUrl;
+}
+
+function extractImageToolErrorFromSteps(result: {
+  steps: Array<{
+    toolResults: Array<{ toolName: string; output: unknown }>;
+  }>;
+  toolResults: Array<{ toolName: string; output: unknown }>;
+}): string | undefined {
+  const allResults = [
+    ...result.steps.flatMap((step) => step.toolResults),
+    ...result.toolResults,
+  ];
+
+  for (const toolResult of allResults) {
+    if (toolResult.toolName !== GENERATE_PREMIUM_IMAGE_TOOL_NAME) continue;
+
+    if (
+      typeof toolResult.output === "string" &&
+      toolResult.output.startsWith(IMAGE_ERROR_PREFIX)
+    ) {
+      return toolResult.output;
+    }
+
+    if (
+      toolResult.output &&
+      typeof toolResult.output === "object" &&
+      "error" in toolResult.output &&
+      typeof (toolResult.output as { error?: string }).error === "string"
+    ) {
+      return (toolResult.output as { error: string }).error;
+    }
+  }
+
+  return undefined;
 }
 
 /**
@@ -117,8 +159,9 @@ export async function runDataVaultAgent(
     system: buildSystemPrompt(options.extraSystemContext ?? "", toolsEnabled),
     messages: toModelMessages(messages),
     /**
-     * Step 1: model calls generate_premium_image (async execute awaits OpenAI).
-     * Step 2: model writes final answer using tool result realUrl.
+     * maxSteps / maxToolRoundtrips equivalent: 2 steps required when tools are on.
+     * Step 1 — LLM calls generate_premium_image (execute awaits OpenAI fetch).
+     * Step 2 — LLM reads tool output (realUrl or error string) and replies.
      */
     stopWhen: tools ? stepCountIs(2) : stepCountIs(1),
   };
@@ -140,7 +183,15 @@ export async function runDataVaultAgent(
 
   const result = await generateText(generateOptions);
 
+  const toolError = extractImageToolErrorFromSteps(result);
   const realUrl = extractRealUrlFromAllSteps(result);
+
+  if (toolError && !realUrl) {
+    const modelText = result.text.trim();
+    return {
+      content: modelText || toolError,
+    };
+  }
 
   if (realUrl) {
     const content = buildFinalContent(result.text.trim(), realUrl);
