@@ -4,14 +4,27 @@ import { useEffect, useRef } from "react";
 
 import { useWallet } from "@/contexts/WalletContext";
 import { useChat } from "@/hooks/useChat";
+import { buildMessageParts, type MessageContentPart } from "@/lib/chat/parse-message-content";
 import { X402_PREMIUM_HBAR_AMOUNT } from "@/lib/constants";
 
-const URL_IN_TEXT =
-  /(https?:\/\/[^\s<>"']+\.(?:png|jpe?g|webp|gif)(?:\?[^\s<>"']*)?)/gi;
-
-function extractImageUrls(content: string): string[] {
-  const matches = content.match(URL_IN_TEXT);
-  return matches ? [...new Set(matches)] : [];
+function ChatImage({ src, alt }: { src: string; alt: string }) {
+  return (
+    <figure className="mt-2 w-full overflow-hidden rounded-lg border border-zinc-600/50 bg-zinc-950/60">
+      <a
+        href={src}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="block"
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={src}
+          alt={alt}
+          className="mt-2 h-auto max-h-96 w-full max-w-full rounded-lg object-contain"
+        />
+      </a>
+    </figure>
+  );
 }
 
 function MessageContent({
@@ -21,54 +34,23 @@ function MessageContent({
   content: string;
   imageUrl?: string;
 }) {
-  const embeddedUrls = extractImageUrls(content);
-  const primaryUrl = imageUrl ?? embeddedUrls[0];
-  const textWithoutUrls =
-    primaryUrl && !imageUrl
-      ? content.replace(URL_IN_TEXT, "").trim()
-      : content;
+  const parts = buildMessageParts(content, imageUrl);
 
   return (
-    <div className="space-y-3">
-      {textWithoutUrls ? (
-        <p className="whitespace-pre-wrap">{textWithoutUrls}</p>
-      ) : null}
-      {primaryUrl ? (
-        <figure className="overflow-hidden rounded-xl border border-zinc-600/60 bg-zinc-950/80">
-          <a
-            href={primaryUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="block"
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={primaryUrl}
-              alt="Premium generated image"
-              className="max-h-96 w-full object-contain"
-            />
-          </a>
-          <figcaption className="border-t border-zinc-700/60 px-3 py-2 text-[10px] text-zinc-500">
-            DALL·E 3 ·{" "}
-            <span className="truncate">{primaryUrl}</span>
-          </figcaption>
-        </figure>
-      ) : null}
-      {embeddedUrls.slice(imageUrl ? 0 : 1).map((url) => (
-        <figure
-          key={url}
-          className="overflow-hidden rounded-xl border border-zinc-600/60 bg-zinc-950/80"
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={url}
-            alt="Linked image"
-            className="max-h-64 w-full object-contain"
-          />
-        </figure>
+    <div className="space-y-2">
+      {parts.map((part, index) => (
+        <MessagePartBlock key={`${part.type}-${index}`} part={part} />
       ))}
     </div>
   );
+}
+
+function MessagePartBlock({ part }: { part: MessageContentPart }) {
+  if (part.type === "image") {
+    return <ChatImage src={part.url} alt={part.alt} />;
+  }
+
+  return <p className="whitespace-pre-wrap">{part.value}</p>;
 }
 
 function MessageBubble({
@@ -94,7 +76,7 @@ function MessageBubble({
         {isUser ? "You" : role === "assistant" ? "Agent" : "System"}
       </span>
       <div
-        className={`rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm ${
+        className={`max-w-full rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm ${
           isUser
             ? "rounded-br-md bg-gradient-to-br from-emerald-600/90 to-emerald-700/90 text-white"
             : "rounded-bl-md border border-zinc-700/60 bg-zinc-800/80 text-zinc-100"
