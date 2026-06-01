@@ -28,12 +28,8 @@ export function useChat() {
     setIsSubmitting(true);
 
     try {
-      // Placeholder: agent + x402 flow will call /api/agent
-      const assistantMessage = createMessage(
-        "assistant",
-        "Agent responses will appear here once /api/agent is implemented.",
-      );
-      setMessages((prev) => [...prev, assistantMessage]);
+      // Frontend-only: API / x402 wiring comes later
+      await new Promise((resolve) => setTimeout(resolve, 400));
     } finally {
       setIsSubmitting(false);
     }

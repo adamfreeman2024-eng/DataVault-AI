@@ -1,76 +1,162 @@
 "use client";
 
+import { useEffect, useRef } from "react";
+
+import { useWallet } from "@/contexts/WalletContext";
 import { useChat } from "@/hooks/useChat";
 
+function MessageBubble({
+  role,
+  content,
+}: {
+  role: "user" | "assistant" | "system";
+  content: string;
+}) {
+  const isUser = role === "user";
+
+  return (
+    <article
+      className={`flex max-w-[90%] flex-col gap-1 ${isUser ? "ml-auto items-end" : "items-start"}`}
+    >
+      <span
+        className={`text-[10px] font-semibold uppercase tracking-widest ${
+          isUser ? "text-emerald-500/80" : "text-zinc-500"
+        }`}
+      >
+        {isUser ? "You" : role === "assistant" ? "Agent" : "System"}
+      </span>
+      <div
+        className={`rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm ${
+          isUser
+            ? "rounded-br-md bg-gradient-to-br from-emerald-600/90 to-emerald-700/90 text-white"
+            : "rounded-bl-md border border-zinc-700/60 bg-zinc-800/80 text-zinc-100"
+        }`}
+      >
+        <p className="whitespace-pre-wrap">{content}</p>
+      </div>
+    </article>
+  );
+}
+
 export function ChatBox() {
+  const { isConnected } = useWallet();
   const { messages, input, setInput, isSubmitting, sendMessage } = useChat();
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!isConnected) return;
     void sendMessage();
   };
 
+  const canSend =
+    isConnected && !isSubmitting && input.trim().length > 0;
+
   return (
-    <section className="flex min-h-[28rem] flex-1 flex-col rounded-xl border border-zinc-800 bg-zinc-900/50">
-      <div className="border-b border-zinc-800 px-4 py-3">
-        <h2 className="text-sm font-medium text-zinc-200">Agent chat</h2>
-        <p className="text-xs text-zinc-500">
-          Messages will route through /api/agent with Hedera x402 settlement.
-        </p>
+    <section className="flex min-h-[32rem] flex-1 flex-col overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-900/40 shadow-2xl shadow-black/40 ring-1 ring-white/5 backdrop-blur-sm">
+      <div className="border-b border-zinc-800/80 px-5 py-4">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-base font-semibold text-zinc-100">
+              Agent workspace
+            </h2>
+            <p className="mt-0.5 text-xs text-zinc-500">
+              Describe your bounty task — x402 settlement unlocks on send
+            </p>
+          </div>
+          <span
+            className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide ${
+              isConnected
+                ? "bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/30"
+                : "bg-zinc-800 text-zinc-500 ring-1 ring-zinc-700"
+            }`}
+          >
+            {isConnected ? "Wallet linked" : "Wallet required"}
+          </span>
+        </div>
       </div>
 
       <div
-        className="flex-1 space-y-3 overflow-y-auto p-4"
+        className="flex-1 space-y-4 overflow-y-auto overscroll-contain px-5 py-5 scrollbar-thin"
         aria-live="polite"
         aria-label="Chat messages"
       >
         {messages.length === 0 ? (
-          <p className="text-sm text-zinc-500">
-            Send a message to start. Connect your wallet to enable paid agent
-            runs.
-          </p>
+          <div className="flex h-full min-h-[16rem] flex-col items-center justify-center gap-3 text-center">
+            <div className="rounded-2xl border border-dashed border-zinc-700/80 bg-zinc-950/50 px-6 py-8">
+              <p className="text-sm font-medium text-zinc-300">
+                No messages yet
+              </p>
+              <p className="mt-2 max-w-xs text-xs leading-relaxed text-zinc-500">
+                {isConnected
+                  ? "Describe a complex task for the agent — micropayment settlement will attach when the backend is wired."
+                  : "Connect your HashPack wallet to compose and send agent tasks."}
+              </p>
+            </div>
+          </div>
         ) : (
           messages.map((message) => (
-            <article
+            <MessageBubble
               key={message.id}
-              className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
-                message.role === "user"
-                  ? "ml-auto bg-emerald-900/40 text-emerald-50"
-                  : "bg-zinc-800 text-zinc-200"
-              }`}
-            >
-              <header className="mb-1 text-xs font-medium uppercase tracking-wide text-zinc-500">
-                {message.role}
-              </header>
-              <p className="whitespace-pre-wrap">{message.content}</p>
-            </article>
+              role={message.role}
+              content={message.content}
+            />
           ))
         )}
+        <div ref={bottomRef} className="h-px shrink-0" aria-hidden />
       </div>
 
       <form
         onSubmit={handleSubmit}
-        className="flex gap-2 border-t border-zinc-800 p-4"
+        className="border-t border-zinc-800/80 bg-zinc-950/50 p-4 sm:p-5"
       >
         <label htmlFor="chat-input" className="sr-only">
-          Message
+          Task description
         </label>
-        <input
-          id="chat-input"
-          type="text"
-          value={input}
-          onChange={(event) => setInput(event.target.value)}
-          placeholder="Ask the agent…"
-          disabled={isSubmitting}
-          className="flex-1 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-600 disabled:opacity-60"
-        />
-        <button
-          type="submit"
-          disabled={isSubmitting || !input.trim()}
-          className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          Send
-        </button>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+          <textarea
+            id="chat-input"
+            rows={3}
+            value={input}
+            onChange={(event) => setInput(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                if (canSend) void sendMessage();
+              }
+            }}
+            placeholder={
+              isConnected
+                ? "e.g. Analyze on-chain token flows for account 0.0.x and summarize risks…"
+                : "Connect wallet to enable task submission…"
+            }
+            disabled={!isConnected || isSubmitting}
+            className="min-h-[4.5rem] flex-1 resize-none rounded-xl border border-zinc-700/80 bg-zinc-900/80 px-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+          />
+          <button
+            type="submit"
+            disabled={!canSend}
+            title={
+              !isConnected
+                ? "Connect your wallet to send"
+                : !input.trim()
+                  ? "Enter a message"
+                  : undefined
+            }
+            className="shrink-0 rounded-xl bg-gradient-to-r from-emerald-600 to-cyan-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-emerald-900/25 transition hover:from-emerald-500 hover:to-cyan-500 disabled:cursor-not-allowed disabled:from-zinc-700 disabled:to-zinc-700 disabled:text-zinc-500 disabled:shadow-none sm:min-w-[7rem]"
+          >
+            {isSubmitting ? "Sending…" : "Send"}
+          </button>
+        </div>
+        {!isConnected && (
+          <p className="mt-2 text-center text-xs text-amber-500/90 sm:text-left">
+            HashPack connection required before submitting tasks.
+          </p>
+        )}
       </form>
     </section>
   );
