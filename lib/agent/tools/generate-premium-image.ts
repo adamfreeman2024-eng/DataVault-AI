@@ -5,6 +5,29 @@ import { executeOpenAIImageGeneration } from "@/lib/ai/dalle";
 
 export const GENERATE_PREMIUM_IMAGE_TOOL_NAME = "generate_premium_image";
 
+/** Set false to resume OpenAI calls. Also referenced from `app/api/agent/route.ts`. */
+export const IS_MOCK_MODE = true;
+
+const MOCK_IMAGE_MARKDOWN =
+  "![Test Space Vault](https://images.unsplash.com/photo-1614730321146-b6fa6a46bcb4?q=80&w=1000)";
+
+/**
+ * Sample gpt-image-2 success body (logged in mock mode; no API spend).
+ */
+function buildMockOpenAIJsonResponse(prompt: string) {
+  return {
+    created: Math.floor(Date.now() / 1000),
+    data: [
+      {
+        b64_json: "<omitted — real API returns base64 PNG bytes here>",
+        revised_prompt: prompt.trim(),
+      },
+    ],
+    output_format: "png",
+    quality: "high",
+  };
+}
+
 /**
  * Premium image tool — only registered after x402 payment is verified.
  * execute() never throws; failures return an error string for the LLM.
@@ -23,9 +46,24 @@ export function createGeneratePremiumImageTool() {
         ),
     }),
     execute: async ({ prompt }) => {
-      console.log("1. Tool called: generate_premium_image started");
+      console.log("1. Tool called: generate_premium_image started", {
+        mockMode: IS_MOCK_MODE,
+      });
 
       try {
+        if (IS_MOCK_MODE) {
+          const mockJson = buildMockOpenAIJsonResponse(prompt);
+          console.log(
+            "[generate_premium_image] MOCK_MODE — skipping OpenAI API. Sample JSON response:",
+            JSON.stringify(mockJson, null, 2),
+          );
+          console.log(
+            "[generate_premium_image] MOCK_MODE — returning test markdown:",
+            MOCK_IMAGE_MARKDOWN,
+          );
+          return MOCK_IMAGE_MARKDOWN;
+        }
+
         const result = await executeOpenAIImageGeneration(prompt);
 
         if (!result.ok) {

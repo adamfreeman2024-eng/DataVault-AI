@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { buildOnChainContextSnippet } from "@/lib/agent/hedera-context";
 import { runDataVaultAgent } from "@/lib/agent/run-agent";
+import { IS_MOCK_MODE } from "@/lib/agent/tools/generate-premium-image";
 import { getLatestUserMessage, requiresPremiumTask } from "@/lib/agent/premium";
 import {
   buildPaymentRequiredResponse,
@@ -141,6 +142,12 @@ export async function POST(request: Request) {
       if (mirrorContext) {
         extraSystemContext = mirrorContext;
       }
+    }
+
+    if (premiumTask && paymentVerified && IS_MOCK_MODE) {
+      console.log(
+        "[api/agent] MOCK image generation — no OpenAI API call (IS_MOCK_MODE=true)",
+      );
     }
 
     const agentResult = await runDataVaultAgent(body.messages, {

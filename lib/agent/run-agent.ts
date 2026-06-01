@@ -49,9 +49,15 @@ function toModelMessages(messages: AgentChatMessage[]) {
     }));
 }
 
+const TOOL_OUTPUT_MARKDOWN_IMAGE_REGEX = /!\[[^\]]*\]\(([^)]+)\)/;
+
 function extractRealUrlFromToolOutput(output: unknown): string | undefined {
   if (typeof output === "string") {
     if (output.startsWith(IMAGE_ERROR_PREFIX)) return undefined;
+    const markdownMatch = output.match(TOOL_OUTPUT_MARKDOWN_IMAGE_REGEX);
+    if (markdownMatch?.[1]) {
+      return markdownMatch[1].trim();
+    }
     return undefined;
   }
 
