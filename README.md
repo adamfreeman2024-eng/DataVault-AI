@@ -34,7 +34,8 @@ Showcase a **production-shaped pattern** for **pay-per-use AI agents on Hedera**
 1. User connects wallet and sends a task in natural language.
 2. Server classifies the task as **free** or **premium**.
 3. Premium tasks require a **verified on-chain payment** before expensive AI or tooling runs.
-4. After payment, the agent runs with optional **Hedera mirror context** and **gated tools** (e.g. image generation).
+4. After payment, the agent runs with **Hedera Agent Kit read-only tools**, optional **mirror context**, and **gated premium tools** (e.g. image generation).
+5. Each successful premium settlement **`transactionId` is consumed once** via server-side replay protection.
 
 ### Problem solved for the Hedera AI Bounty
 
@@ -43,7 +44,8 @@ Showcase a **production-shaped pattern** for **pay-per-use AI agents on Hedera**
 | AI API costs with no on-chain accountability | Premium path charges **10 HBAR** to the operator before image gen / heavy work |
 | Trustless payment proof | Server verifies **`transactionId`** via Hiero SDK `TransactionRecordQuery` (exact amount to operator) |
 | Wallet-native UX | Payment is signed in the user's wallet (`DAppConnector.signAndExecuteTransaction`) |
-| Hedera ecosystem fit | Uses **HBAR**, **testnet**, **mirror node** enrichment via `hedera-agent-kit` |
+| Hedera ecosystem fit | Uses **HBAR**, **testnet**, **Hedera Agent Kit** query tools, and mirror enrichment |
+| Payment replay abuse | **In-memory transaction store** rejects reused `transactionId`s (`TRANSACTION_ALREADY_USED`) |
 
 The bounty theme—**agents that earn and pay on Hedera**—is embodied in the **x402-style gate**: no `transactionId`, no premium execution.
 
@@ -86,10 +88,30 @@ Premium is triggered when the latest user message:
 
 After verified payment, the server may:
 
-1. **Enrich context** from Hedera mirror if the message contains an account id (`0.0.xxxxx`) — balance and EVM address via `hedera-agent-kit`.
-2. Run **DeepSeek** with up to **5 agent steps** and the **`generate_premium_image`** tool enabled.
-3. **Force tool choice** when the user explicitly asked for image generation.
-4. Return **text + optional `imageUrl`** (hosted URL or `data:` base64 from OpenAI).
+1. **Reject replayed payments** if the same `transactionId` was already consumed for a successful premium run (`TRANSACTION_ALREADY_USED`).
+2. **Enrich context** from Hedera mirror if the message contains an account id (`0.0.xxxxx`) — balance and EVM address via `hedera-agent-kit`.
+3. Run **DeepSeek** with up to **5 agent steps** and a **gated tool set**:
+   - **Hedera Agent Kit** read-only queries: HBAR balance, account info, token info (`HederaAIToolkit` via `lib/hedera/agent-kit.ts`).
+   - **`generate_premium_image`** for OpenAI image generation.
+4. **Force tool choice** when the user explicitly asked for image generation.
+5. Return **text + optional `imageUrl`** (hosted URL or `data:` base64 from OpenAI).
+
+### x402 replay protection
+
+- **`lib/agent/x402-transaction-store.ts`** maintains an in-memory `Set` of `transactionId`s that have completed a successful premium agent execution.
+- Before on-chain verification, `POST /api/agent` checks `isX402TransactionAlreadyUsed()` and returns **400** with code **`TRANSACTION_ALREADY_USED`** if the id was already consumed.
+- After a successful **HTTP 200** agent response, `markX402TransactionUsed()` records the id so it cannot fund another premium run.
+- Failed agent runs do **not** consume the id (the user may retry with the same payment proof).
+- The store resets when the Node.js process restarts (no database).
+
+### Hedera Agent Kit (live on-chain queries)
+
+- **`createReadOnlyHederaAiTools()`** in `lib/hedera/agent-kit.ts` wraps `HederaAIToolkit` with `coreAccountQueryPlugin` and `coreTokenQueryPlugin`, limited to:
+  - `get_hbar_balance_query_tool`
+  - `get_account_query_tool`
+  - `get_token_info_query_tool`
+- In **`runDataVaultAgent`** (`lib/agent/run-agent.ts`), these tools are merged into the Vercel AI SDK `tools` object **only when `paymentVerified` is true**, alongside `generate_premium_image`.
+- The operator Hedera client from payment verification is passed as `hederaClient` so the LLM can invoke mirror queries during the tool loop.
 
 ### Image generation (paid)
 
@@ -100,15 +122,16 @@ After verified payment, the server may:
 ### API robustness
 
 - Message validation (roles, length, count limits).
-- Payment verification errors with codes (`PAYMENT_VERIFICATION_FAILED`, `HEDERA_CLIENT_ERROR`, etc.).
+- Payment verification errors with codes (`PAYMENT_VERIFICATION_FAILED`, `TRANSACTION_ALREADY_USED`, `HEDERA_CLIENT_ERROR`, etc.).
 - Agent execution timeout (120s) and route `maxDuration` 300s for long image jobs.
 
 ### What the agent does not do today
 
-- No server-side **write** transactions (transfers only from the user wallet).
-- No full **hedera-agent-kit** tool loop (balance/token queries as LLM tools)—only mirror snippet injection.
+- No server-side **write** transactions (transfers only from the user wallet; Agent Kit tools are **read-only** queries).
+- No write-capable Hedera Agent Kit plugins (token create, transfers, etc.) in the LLM loop.
 - No streaming SSE responses.
 - No persisted chat history (in-memory per session only).
+- No durable replay store across server restarts (transaction ids are in-memory only).
 
 ---
 
@@ -139,7 +162,7 @@ After verified payment, the server may:
 | `@hashgraph/hedera-wallet-connect` | `DAppConnector`, sign and execute transfers |
 | `@walletconnect/modal` | WalletConnect UI (via connector) |
 | `@reown/appkit`, `@reown/walletkit`, `@reown/appkit-*` | In dependencies; **UI uses `hedera-wallet-connect` directly** |
-| `hedera-agent-kit` | Mirror node reads (`getMirrornodeService`) |
+| `hedera-agent-kit` | `HederaAIToolkit` read-only query tools + mirror reads (`getMirrornodeService`) |
 
 > **Note:** There is **no `lib/hashconnect` folder**. Wallet integration lives under `lib/wallet/` and `contexts/WalletContext.tsx`. The env var `NEXT_PUBLIC_HASHCONNECT_PROJECT_ID` is the **WalletConnect / Reown project ID**.
 
@@ -164,7 +187,7 @@ After verified payment, the server may:
 ```
 agentkit/
 ├── app/
-│   ├── api/agent/route.ts    # x402 gate, payment verify, run agent
+│   ├── api/agent/route.ts    # x402 gate, replay check, verify, run agent
 │   ├── layout.tsx            # Root layout and metadata
 │   ├── page.tsx              # Home → AppShell
 │   └── globals.css
@@ -180,8 +203,9 @@ agentkit/
 │   └── useChat.ts            # Chat state + x402 client orchestration
 ├── lib/
 │   ├── agent/                # Agent brain and x402 server logic
-│   │   ├── run-agent.ts      # DeepSeek + tools loop
+│   │   ├── run-agent.ts      # DeepSeek + HAK + image tools loop
 │   │   ├── x402.ts           # 402 payload and on-chain verification
+│   │   ├── x402-transaction-store.ts  # In-memory replay protection
 │   │   ├── premium.ts        # Free vs premium classification
 │   │   ├── client-api.ts     # Browser → /api/agent
 │   │   ├── hedera-context.ts # Mirror enrichment after payment
@@ -197,7 +221,7 @@ agentkit/
 │   ├── hedera/
 │   │   ├── client.ts         # Operator client (server only)
 │   │   ├── network.ts
-│   │   └── agent-kit.ts      # Tool name constants (future use)
+│   │   └── agent-kit.ts      # READ_ONLY_TOOL_NAMES + createReadOnlyHederaAiTools()
 │   ├── wallet/
 │   │   ├── x402-payment.ts   # Client-side HBAR transfer
 │   │   ├── config.ts
@@ -215,7 +239,9 @@ agentkit/
 |---------|----------|
 | **HTTP / x402 / verify / run** | `app/api/agent/route.ts` |
 | **Payment required and verify HBAR** | `lib/agent/x402.ts` |
+| **x402 replay protection** | `lib/agent/x402-transaction-store.ts` |
 | **Premium vs free** | `lib/agent/premium.ts` |
+| **Hedera Agent Kit → AI SDK tools** | `lib/hedera/agent-kit.ts` |
 | **LLM + tools** | `lib/agent/run-agent.ts` |
 | **Wallet pay and retry** | `hooks/useChat.ts` + `lib/wallet/x402-payment.ts` |
 | **Wallet session** | `contexts/WalletContext.tsx` |
@@ -249,9 +275,11 @@ sequenceDiagram
         Wallet->>Hedera: TransferTransaction
         Hedera-->>Wallet: transactionId
         Chat->>API: POST { messages, transactionId }
+        API->>API: isX402TransactionAlreadyUsed?
         API->>Hedera: TransactionRecordQuery
         API->>API: verify exact 10 HBAR to operator
-        API->>API: runDataVaultAgent(paymentVerified=true)
+        API->>API: runDataVaultAgent(paymentVerified=true, HAK tools)
+        API->>API: markX402TransactionUsed on success
         API-->>Chat: 200 { content, imageUrl? }
     end
 ```
@@ -303,7 +331,11 @@ On `payment_required`, `useChat`:
 
 Second `callAgentApi(messages, { transactionId })`.
 
-### Step 6 — Server verifies payment on-ledger
+### Step 6 — Replay check
+
+If `isX402TransactionAlreadyUsed(transactionId)` in `lib/agent/x402-transaction-store.ts` returns true, the API responds with **400** and code **`TRANSACTION_ALREADY_USED`** before any further work.
+
+### Step 7 — Server verifies payment on-ledger
 
 `verifyHbarPayment(client, transactionId, operatorAccountId)`:
 
@@ -315,20 +347,26 @@ Second `callAgentApi(messages, { transactionId })`.
 
 Failure → `400` with `PAYMENT_VERIFICATION_FAILED`.
 
-### Step 7 — Optional Hedera context (premium + paid)
+### Step 8 — Optional Hedera context (premium + paid)
 
 If the user message contains `0.0.\d+`, `buildOnChainContextSnippet()` queries mirror for account + HBAR balance and appends it to the system prompt.
 
-### Step 8 — Agent execution (gated tools)
+### Step 9 — Agent execution (gated tools)
 
 `runDataVaultAgent()` (`lib/agent/run-agent.ts`):
 
 | `paymentVerified` | Behavior |
 |-------------------|----------|
 | `false` | DeepSeek only, `stepCountIs(1)`, **no tools** |
-| `true` | Registers `generate_premium_image`, up to 5 steps; may force tool if image intent detected |
+| `true` | Merges **Hedera Agent Kit** read-only tools + `generate_premium_image`; up to 5 steps; may force image tool if image intent detected |
+
+Hedera tools are created via `createReadOnlyHederaAiTools(hederaClient)` and allow the model to query account balances, account details, and token info live from mirror nodes during the conversation.
 
 Image tool calls OpenAI; `onImageReady` captures the real URL; final response merges model text with verified image markdown / `imageUrl`.
+
+### Step 10 — Mark transaction consumed (success only)
+
+On **HTTP 200** after a premium run, `markX402TransactionUsed(settledTransactionId)` records the payment proof so it cannot be reused. Agent failures do not mark the id.
 
 ### Constants
 
@@ -347,36 +385,38 @@ Defined in `lib/constants.ts`:
 - Chat UI with premium/free routing and payment UX phases.
 - **402 → wallet transfer → verify → agent** loop for premium tasks.
 - On-chain verification of **exact 10 HBAR** to operator.
+- **x402 replay protection** via in-memory transaction store (`lib/agent/x402-transaction-store.ts`): rejects reused `transactionId`s with **`TRANSACTION_ALREADY_USED`**; marks ids consumed only after successful premium execution.
+- **Hedera Agent Kit read-only tools** integrated into the premium LLM loop (`lib/hedera/agent-kit.ts` → `runDataVaultAgent`): live HBAR balance, account, and token info queries after verified payment.
 - DeepSeek chat for free and paid paths.
 - Premium **image generation** via OpenAI `gpt-image-2` after payment (with mock mode toggle).
-- Mirror **read-only** context when account id appears in the user message.
+- Mirror **read-only** system-prompt context when an account id appears in the user message (in addition to Agent Kit tool calls).
 - API validation, error codes, timeouts, and abort handling.
 
 ### Needs implementation or refinement
 
 | Area | Gap |
 |------|-----|
-| **Hedera Agent Kit tools** | `READ_ONLY_TOOL_NAMES` exported but **not wired** into the LLM tool loop; only manual mirror snippet |
 | **x402 protocol compliance** | Custom JSON 402 body; no standard payment headers / facilitator integration |
 | **Premium classification** | Regex/heuristic only—may **false-positive** (long messages) or **false-negative** edge cases |
 | **Network config** | Wallet hardcoded to **testnet** in `WalletContext`; operator network from `HEDERA_NETWORK` env—must stay aligned |
 | **Mainnet / production** | No deployment guide, rate limits, or operator key rotation story in repo |
 | **Persistence** | No database; chat history lost on refresh |
+| **Replay store durability** | In-memory only; resets on deploy/restart; no cross-instance ledger |
 | **Streaming** | Responses are non-streaming `generateText` only |
 | **Reown AppKit** | Dependencies installed; **not used** in UI (direct `DAppConnector` instead) |
 | **Legacy AI helpers** | `lib/ai/openai.ts`, `lib/ai/deepseek.ts` unused by main agent path |
 | **Documentation / DX** | No committed `.env.example`; env vars discovered from `lib/env.ts` and `lib/wallet/config.ts` |
 | **UI copy accuracy** | Chat header mentions "DALL·E 3"; code uses **`gpt-image-2`** |
-| **Tests** | No automated tests for payment verification or premium gates |
-| **Security hardening** | No replay protection on `transactionId` reuse across sessions; no per-user payment ledger |
+| **Tests** | No automated tests for payment verification, replay protection, or premium gates |
+| **Write-capable Agent Kit** | Only read-only query plugins enabled; no autonomous HTS/account write tools |
 
 ### Recommended next steps for bounty polish
 
 1. Add `.env.example` and document testnet operator + WalletConnect setup.
-2. Wire **hedera-agent-kit** read tools into `runDataVaultAgent` for paid "analyze account X" flows.
-3. Store used `transactionId`s (or payment nonces) to prevent replay.
-4. Align wallet network with `HEDERA_NETWORK` via env.
-5. Add integration tests for `verifyHbarPayment` with recorded testnet transactions.
+2. Align wallet network with `HEDERA_NETWORK` via env (client + operator on the same ledger).
+3. Add integration tests for `verifyHbarPayment` and `x402-transaction-store` replay behavior.
+4. Persist consumed `transactionId`s (Redis or DB) for multi-instance / restart-safe replay protection.
+5. Fix ChatBox UI copy to reference **`gpt-image-2`** instead of DALL·E 3.
 
 ---
 
@@ -431,7 +471,8 @@ npm run dev
 Open [http://localhost:3000](http://localhost:3000), connect a Hedera wallet, and try:
 
 - **Free:** `Hello`
-- **Premium (payment):** `Generate an image of a futuristic Hedera vault in space`
+- **Premium (payment + image):** `Generate an image of a futuristic Hedera vault in space`
+- **Premium (payment + on-chain query):** `What is the HBAR balance of account 0.0.1234?`
 
 ---
 
