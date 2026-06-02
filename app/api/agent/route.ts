@@ -5,6 +5,10 @@ import { runDataVaultAgent } from "@/lib/agent/run-agent";
 import { IS_MOCK_MODE } from "@/lib/agent/tools/generate-premium-image";
 import { getLatestUserMessage, requiresPremiumTask } from "@/lib/agent/premium";
 import {
+  isX402TransactionAlreadyUsed,
+  markX402TransactionUsed,
+} from "@/lib/agent/x402-transaction-store";
+import {
   buildPaymentRequiredResponse,
   verifyHbarPayment,
 } from "@/lib/agent/x402";
@@ -126,6 +130,8 @@ export async function POST(request: Request) {
   const premiumTask = requiresPremiumTask(body.messages);
   const operatorAccountId = getHederaOperatorConfig().accountId;
   let paymentVerified = false;
+  let settledTransactionId: string | undefined;
+  let operatorClient: ReturnType<typeof createOperatorClient> | undefined;
 
   if (premiumTask) {
     const transactionId = body.transactionId?.trim();
@@ -136,10 +142,21 @@ export async function POST(request: Request) {
       });
     }
 
+    if (isX402TransactionAlreadyUsed(transactionId)) {
+      return jsonError(
+        {
+          error:
+            "This payment transaction has already been used for a premium agent execution.",
+          code: "TRANSACTION_ALREADY_USED",
+        },
+        400,
+      );
+    }
+
     try {
-      const { client } = createOperatorClient();
+      operatorClient = createOperatorClient();
       const verification = await verifyHbarPayment(
-        client,
+        operatorClient.client,
         transactionId,
         operatorAccountId,
       );
@@ -155,6 +172,7 @@ export async function POST(request: Request) {
       }
 
       paymentVerified = true;
+      settledTransactionId = transactionId;
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Payment verification error";
@@ -170,7 +188,8 @@ export async function POST(request: Request) {
     let extraSystemContext = "";
 
     if (premiumTask && paymentVerified && latestUser) {
-      const { client, network } = createOperatorClient();
+      const { client, network } =
+        operatorClient ?? createOperatorClient();
       const mirrorContext = await buildOnChainContextSnippet(
         client,
         network,
@@ -195,13 +214,23 @@ export async function POST(request: Request) {
     let agentResult: Awaited<ReturnType<typeof runDataVaultAgent>>;
 
     try {
+      const hederaClient =
+        paymentVerified && operatorClient
+          ? operatorClient.client
+          : undefined;
+
       agentResult = await runDataVaultAgent(body.messages, {
         paymentVerified,
         extraSystemContext,
         abortSignal: signal,
+        ...(hederaClient ? { hederaClient } : {}),
       });
     } finally {
       cleanup();
+    }
+
+    if (settledTransactionId) {
+      markX402TransactionUsed(settledTransactionId);
     }
 
     const response: AgentSuccessResponse = {

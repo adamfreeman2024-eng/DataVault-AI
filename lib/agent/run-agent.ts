@@ -1,6 +1,8 @@
+import type { Client } from "@hiero-ledger/sdk";
 import { generateText, stepCountIs, type ToolSet } from "ai";
 
 import { createDeepSeekLanguageModel } from "@/lib/ai/deepseek-provider";
+import { createReadOnlyHederaAiTools } from "@/lib/hedera/agent-kit";
 import {
   createGeneratePremiumImageTool,
   GENERATE_PREMIUM_IMAGE_TOOL_NAME,
@@ -150,6 +152,8 @@ export async function runDataVaultAgent(
     paymentVerified: boolean;
     extraSystemContext?: string;
     abortSignal?: AbortSignal;
+    /** Operator Hedera client — required when `paymentVerified` is true. */
+    hederaClient?: Client;
   },
 ): Promise<AgentRunResult> {
   const model = createDeepSeekLanguageModel();
@@ -159,13 +163,22 @@ export async function runDataVaultAgent(
   let capturedImageUrl: string | undefined;
 
   const tools: ToolSet | undefined = toolsEnabled
-    ? {
-        [GENERATE_PREMIUM_IMAGE_TOOL_NAME]: createGeneratePremiumImageTool({
-          onImageReady: (realUrl) => {
-            capturedImageUrl = realUrl;
-          },
-        }),
-      }
+    ? (() => {
+        if (!options.hederaClient) {
+          throw new Error(
+            "Hedera client is required for premium agent execution.",
+          );
+        }
+
+        return {
+          ...createReadOnlyHederaAiTools(options.hederaClient),
+          [GENERATE_PREMIUM_IMAGE_TOOL_NAME]: createGeneratePremiumImageTool({
+            onImageReady: (realUrl) => {
+              capturedImageUrl = realUrl;
+            },
+          }),
+        };
+      })()
     : undefined;
 
   const generateOptions: Parameters<typeof generateText>[0] = {
