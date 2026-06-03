@@ -1,5 +1,32 @@
-<!-- BEGIN:nextjs-agent-rules -->
-# This is NOT the Next.js you know
+# DataVault AI — Agent Instructions
 
-This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
-<!-- END:nextjs-agent-rules -->
+## Project
+Next.js 16 (App Router) full-stack app. Hedera AI Bounty 3 submission.
+Pay-per-use AI agent with x402-inspired HBAR micropayments on Hedera testnet.
+
+## Key rules
+- Never use window.location.href — use Next.js useRouter.
+- Never sync state in useEffect without setTimeout wrapper.
+- Use new FormData() for forms — no @ts-ignore.
+- Zero unused imports. Run eslint before committing.
+
+## Architecture
+- app/api/agent/route.ts — single API entrypoint (x402 gate + agent runner)
+- lib/agent/ — core agent logic: classification, x402, replay store, tools
+- lib/hedera/ — Hedera SDK client, Agent Kit tool wrappers
+- lib/wallet/ — client-side x402 payment + wallet config
+- contexts/WalletContext.tsx — DAppConnector lifecycle
+- hooks/useChat.ts — chat state + x402 client orchestration
+
+## Payment flow
+1. POST /api/agent with messages
+2. If premium task detected → HTTP 402 with settlement instructions
+3. Client pays 10 HBAR on Hedera testnet via WalletConnect
+4. Retry with transactionId proof
+5. Server verifies on-ledger → runs premium agent with Hedera Agent Kit tools
+
+## Before making changes
+- Read the file you're editing first
+- Check imports with rg before deleting anything
+- Run npm run lint after each change
+- Test with npm run dev on localhost:3000
