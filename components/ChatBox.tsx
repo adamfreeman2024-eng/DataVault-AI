@@ -163,7 +163,7 @@ export function ChatBox() {
               Agent workspace
             </h2>
             <p className="mt-0.5 text-xs text-zinc-500">
-              DeepSeek chat · DALL·E 3 images · {X402_PREMIUM_HBAR_AMOUNT} HBAR
+              DeepSeek chat · GPT Image 2 images · {X402_PREMIUM_HBAR_AMOUNT} HBAR
               premium gate
             </p>
           </div>
