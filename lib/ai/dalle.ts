@@ -122,6 +122,10 @@ export async function executeOpenAIImageGeneration(
       };
     }
 
+    // Debug: verify key format without leaking full secret
+    console.log("[generate_premium_image] API key found, prefix:", 
+      apiKey.substring(0, 7) + "...", "length:", apiKey.length);
+
     const payload = {
       model: OPENAI_IMAGE_MODEL,
       prompt: prompt.trim(),
