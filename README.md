@@ -409,7 +409,7 @@ Type `hello` or `what is your name?` and press Send.
 The agent responds immediately using DeepSeek — no HBAR required.
 
 ### Step 3 — Trigger Premium Gate
-Type: `generate an image of a futuristic Armenian AI city`
+Type: `Generate a premium high-resolution image of a futuristic Hedera Hashgraph vault floating in a cyberpunk city.`
 The API returns 402 Payment Required with instructions to send 10 HBAR.
 
 ### Step 4 — Pay 10 HBAR
