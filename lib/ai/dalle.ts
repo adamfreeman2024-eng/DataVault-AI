@@ -1,4 +1,6 @@
-/** OpenAI Images API — gpt-image-2 (quality: standard for faster generation) */
+/** OpenAI Images API — gpt-image-2 (quality: standard for faster generation) 
+ *  OPENAI_API_KEY must be set in Vercel Environment Variables (Settings → Env Vars)
+ */
 const OPENAI_IMAGES_GENERATIONS_URL =
   "https://api.openai.com/v1/images/generations";
 
