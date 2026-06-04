@@ -396,7 +396,8 @@ Defined in `lib/constants.ts`:
 - Mirror **read-only** system-prompt context when an account id appears in the user message (in addition to Agent Kit tool calls).
 - API validation, error codes, timeouts, and abort handling.
 
-- ````markdown
+
+````markdown
 ## 🎬 Demo Walkthrough
 
 ### Step 1 — Connect Wallet
@@ -426,6 +427,7 @@ The server verifies your payment on-ledger, then generates the image via OpenAI 
 ---
 
 Live Demo: [datavaultai2.vercel.app](https://datavaultai2.vercel.app/)
+````
 
 ### Needs implementation or refinement
 
