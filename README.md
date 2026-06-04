@@ -397,37 +397,39 @@ Defined in `lib/constants.ts`:
 - API validation, error codes, timeouts, and abort handling.
 
 
-````markdown
-## 🎬 Demo Walkthrough
+## 🎬 Demo Walkthrough (3 Quick Steps)
 
-### Step 1 — Connect Wallet
-Click *"Connect Wallet" in the navbar → choose HashPack → approve connection.
-Your Hedera testnet account ID appears in the header.
-
-### Step 2 — Free Tier (No Payment)
-Type `hello` or `what is your name?` and press Send.
-The agent responds immediately using DeepSeek — no HBAR required.
-
-### Step 3 — Trigger Premium Gate
-Type: `Generate a premium high-resolution image of a futuristic Hedera Hashgraph vault floating in a cyberpunk city.`
-The API returns 402 Payment Required with instructions to send 10 HBAR.
-
-### Step 4 — Pay 10 HBAR
-HashPack prompts you to sign the transfer. Approve it.
-Copy the `transactionId` from the HashPack confirmation.
-
-### Step 5 — Send transactionId for Premium Result
-Paste the `transactionId` with your original prompt and send again:
+### Step 1 — Free Chat (No Wallet Needed)
+Type a simple greeting to test the free tier:
 ```
-generate an image of a futuristic Armenian AI city
-transactionId: 0.0.xxxxx@xxxxxxxxxx
+Hello! Briefly, what can you do?
 ```
-The server verifies your payment on-ledger, then generates the image via OpenAI + fetches live Hedera data. The result appears in chat with the generated image.
+*DeepSeek responds immediately — no payment, no wallet required.*
 
 ---
 
-Live Demo: [dv222.vercel.app](https://dv222.vercel.app/)
-````
+### Step 2 — Premium Image Generation (x402 Payment)
+Type an image prompt to trigger the premium gate:
+```
+Generate a premium high-resolution image of a futuristic Hedera Hashgraph vault floating in a cyberpunk city.
+```
+- Agent returns **402 Payment Required** with operator account ID
+- Confirm the 10 HBAR payment in **HashPack**
+- Agent verifies payment on-ledger and generates the image via `gpt-image-2`
+- Result appears in chat with the generated image
+
+---
+
+### Step 3 — On-Chain Analysis (Hedera Agent Kit)
+Type a premium query requesting live blockchain data:
+```
+Conduct a premium on-chain analysis. Fetch the exact HBAR balance and EVM address details for account 0.0.88977 using your tools.
+```
+*Replace `0.0.88977` with any real Hedera account ID. Confirm 10 HBAR payment → Agent fetches live data from Hedera Mirror Node.*
+
+---
+
+**Live Demo:** [dv222.vercel.app](https://dv222.vercel.app/)
 
 ### Needs implementation or refinement
 
