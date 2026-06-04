@@ -396,6 +396,37 @@ Defined in `lib/constants.ts`:
 - Mirror **read-only** system-prompt context when an account id appears in the user message (in addition to Agent Kit tool calls).
 - API validation, error codes, timeouts, and abort handling.
 
+- ````markdown
+## 🎬 Demo Walkthrough
+
+### Step 1 — Connect Wallet
+Click *"Connect Wallet" in the navbar → choose HashPack → approve connection.
+Your Hedera testnet account ID appears in the header.
+
+### Step 2 — Free Tier (No Payment)
+Type `hello` or `what is your name?` and press Send.
+The agent responds immediately using DeepSeek — no HBAR required.
+
+### Step 3 — Trigger Premium Gate
+Type: `generate an image of a futuristic Armenian AI city`
+The API returns 402 Payment Required with instructions to send 10 HBAR.
+
+### Step 4 — Pay 10 HBAR
+HashPack prompts you to sign the transfer. Approve it.
+Copy the `transactionId` from the HashPack confirmation.
+
+### Step 5 — Send transactionId for Premium Result
+Paste the `transactionId` with your original prompt and send again:
+```
+generate an image of a futuristic Armenian AI city
+transactionId: 0.0.xxxxx@xxxxxxxxxx
+```
+The server verifies your payment on-ledger, then generates the image via OpenAI + fetches live Hedera data. The result appears in chat with the generated image.
+
+---
+
+Live Demo: [datavaultai2.vercel.app](https://datavaultai2.vercel.app/)
+
 ### Needs implementation or refinement
 
 | Area | Gap |
