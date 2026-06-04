@@ -1,5 +1,9 @@
 # DataVault AI
 
+## 🚀 Live Demo
+**[datavaultai2.vercel.app](https://datavaultai2.vercel.app/)**
+
+
 **DataVault AI** is a wallet-connected AI agent platform built for the **Hedera AI Bounty**. It demonstrates how premium agent capabilities can be gated behind **on-chain HBAR micropayments** using an **x402-inspired** request/response flow: the server returns HTTP `402 Payment Required` with settlement instructions, the user pays via their Hedera wallet, and the client retries with a `transactionId` proof that the server verifies on-ledger before executing paid work.
 
 ---
